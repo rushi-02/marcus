@@ -142,7 +142,7 @@ def clean_all_sources(data_dir: Path) -> list[dict]:
         "meditations": "meditations.txt",
         "discourses": "discourses.txt",
         "enchiridion": "enchiridion.txt",
-        "letters": "letters_to_lucilius.txt",
+        "seneca_morals": "seneca_morals.txt",
     }
 
     for source_name, filename in source_files.items():

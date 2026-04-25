@@ -39,10 +39,10 @@ SOURCES = {
         "filename": "enchiridion.txt",
         "description": "Epictetus — Enchiridion (Elizabeth Carter translation)",
     },
-    "letters": {
-        "url": "https://www.gutenberg.org/cache/epub/97564/pg97564.txt",
-        "filename": "letters_to_lucilius.txt",
-        "description": "Seneca — Moral Letters to Lucilius (Richard M. Gummere translation)",
+    "seneca_morals": {
+        "url": "https://www.gutenberg.org/cache/epub/56075/pg56075.txt",
+        "filename": "seneca_morals.txt",
+        "description": "Seneca — Morals of a Happy Life, Benefits, Anger and Clemency",
     },
 }
 

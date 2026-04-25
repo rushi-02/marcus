@@ -12,9 +12,12 @@ wheels/
 # Environment variables
 .env
 
-# Data (raw texts are large, git-ignored)
+# Data: keep synthetic and training (small, important);
+# ignore raw, processed, and books (large, regeneratable or binary)
 data/raw/
+data/processed/
 data/reference_voice/
+data/books/
 
 # Model adapters (large binary files)
 adapters/*
