@@ -68,11 +68,17 @@ class MarcusASR:
             from mlx_audio.stt.utils import resample_audio
             audio = resample_audio(audio, sample_rate, 16000).astype(np.float32)
 
-        # whisper.generate returns STTOutput with .text and .segments
+        # whisper.generate returns STTOutput with .text and .segments.
+        # no_speech_threshold raised from default 0.6 → 0.8 to reject
+        # near-silence/noise as actual speech (was hallucinating "freaking
+        # freaking..." on speaker bleed-back). compression_ratio_threshold
+        # default 2.4 stays — it catches degenerate looped output.
         result = self._model.generate(
             audio,
             language=self.config.language,
             verbose=False,
+            no_speech_threshold=0.8,
+            condition_on_previous_text=False,  # avoid context-poisoning loops
         )
 
         if isinstance(result, str):

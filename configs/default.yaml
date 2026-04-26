@@ -26,9 +26,9 @@ tts:
 audio:
   sample_rate: 16000
   channels: 1
-  chunk_duration: 0.5
-  silence_threshold: 0.01
-  silence_duration: 1.5
+  chunk_duration: 0.2          # 200ms chunks for finer VAD granularity
+  silence_threshold: 0.015     # raise to 0.025+ in noisy rooms
+  silence_duration: 2.0        # seconds of silence to end utterance
   playback_chunk_ms: 100
 
 training:

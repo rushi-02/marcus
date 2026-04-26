@@ -69,12 +69,19 @@ class AudioConfig(BaseSettings):
 
     sample_rate: int = 16000
     channels: int = 1
-    chunk_duration: float = 0.5  # seconds per audio chunk
+    # Smaller chunks → finer-grained VAD; 200ms is a good balance of latency
+    # and CPU cost for the energy-based VAD callback.
+    chunk_duration: float = 0.2
     device_input: int | None = None
     device_output: int | None = None
-    silence_threshold: float = 0.01  # RMS energy threshold for VAD
-    silence_duration: float = 1.5  # seconds of silence to end utterance
-    playback_chunk_ms: int = 100  # ms per playback chunk (for barge-in checks)
+    # RMS energy threshold for VAD. 0.015 leaves quiet rooms in the silence
+    # bucket while still catching normal speech. Bump higher (0.02-0.03) in
+    # noisy environments; lower (0.005-0.01) for soft-spoken users.
+    silence_threshold: float = 0.015
+    # How long of continuous silence before we declare end-of-utterance.
+    # 2.0s gives the user breathing room mid-thought without dragging too long.
+    silence_duration: float = 2.0
+    playback_chunk_ms: int = 100
 
 
 class TrainingConfig(BaseSettings):

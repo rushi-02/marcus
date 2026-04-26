@@ -35,6 +35,27 @@ class TestMarcusAgentTextMode:
         assert agent.conversation.last_user_message == "I feel anxious about exams."
         assert agent.conversation.last_assistant_message == "My friend, consider..."
 
+    def test_hallucination_filter_drops_repetitions(self):
+        """Whisper sometimes outputs runs like 'freaking freaking freaking ...'."""
+        from marcus.pipeline.agent import MarcusAgent
+        text = "I'm freaking freaking freaking freaking freaking out."
+        result = MarcusAgent._filter_hallucination(text)
+        assert result == "", f"Expected hallucination filter to drop, got: {result!r}"
+
+    def test_hallucination_filter_drops_short_noise(self):
+        """Single-word transcripts are usually noise."""
+        from marcus.pipeline.agent import MarcusAgent
+        assert MarcusAgent._filter_hallucination("you") == ""
+        assert MarcusAgent._filter_hallucination("Thanks for watching") == ""
+        assert MarcusAgent._filter_hallucination("") == ""
+
+    def test_hallucination_filter_passes_real_speech(self):
+        """Real user utterances must pass through unchanged."""
+        from marcus.pipeline.agent import MarcusAgent
+        text = "I'm feeling really anxious about my exam tomorrow."
+        result = MarcusAgent._filter_hallucination(text)
+        assert result == text
+
     def test_feedback_recording(self, tmp_path):
         """Verify feedback is persisted after record_feedback() call."""
         with (
