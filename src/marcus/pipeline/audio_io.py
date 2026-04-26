@@ -1,27 +1,28 @@
 """Real-time audio I/O: microphone capture with VAD and interruptible playback.
 
-DESIGN: half-duplex (walkie-talkie) by default.
+Two modes, controlled by `AudioConfig.barge_in`:
 
-Without proper acoustic echo cancellation (AEC), Marcus's TTS audio bleeds
-through the speakers back into the mic. This causes two failures:
-- Whisper transcribes the bleed-back as user speech and hallucinates
-  ("freaking freaking freaking..." on near-silence is a known Whisper mode).
-- Self-interrupt: the mic detects Marcus's own voice as "user speaking"
-  and triggers barge-in, cutting Marcus off mid-sentence.
+1. Half-duplex (`barge_in=False`)
+   Mic is paused during TTS playback. Marcus finishes his thought before
+   listening again. Rock-solid but no interruption support. Used as the
+   fallback when echo conditions are too noisy for safe barge-in.
 
-The robust fix is half-duplex: the capture stream is closed during playback.
-The user cannot interrupt Marcus mid-sentence — they wait for him to finish.
-This is the same pattern as walkie-talkies, voicemail prompts, and most
-phone IVRs. We trade barge-in for stability.
+2. Echo-resistant barge-in (`barge_in=True`, default)
+   Mic stays open during playback. To avoid Marcus interrupting himself
+   via speaker bleed-back, two gates kick in during playback:
+     a) Energy threshold is multiplied by `barge_in_threshold_multiplier`
+        (default 3x) — direct user speech is typically ≥6dB above echo.
+     b) Sustained-voice gate: need `barge_in_min_duration` of continuous
+        loud speech (default 600ms) before declaring barge-in.
+   Brief echo blips don't pass either gate; real user speech does.
+   With headphones the echo path is gone and you can drop both gates.
 
-If you want barge-in back, set `half_duplex=False` in AudioConfig and
-ensure your environment has AEC (e.g., headphones, an external AEC
-DSP, or a quiet room with directional mic).
-
-Architecture (half-duplex):
-    LISTENING → user speaks → silence detected → utterance enqueued →
-    PROCESSING (mic still on but ignored) → SPEAKING (mic CLOSED) →
-    LISTENING (mic reopened, fresh).
+State machine (barge-in mode):
+    LISTENING → user speaks → silence → utterance enqueued
+    PROCESSING → ASR → LLM streams tokens → TTS → SPEAKING
+        ↓ (sustained loud user voice during playback)
+    BARGE-IN → player.interrupt() → drop captured echo → wait for user
+        → silence → fresh utterance enqueued → PROCESSING ...
 """
 
 from __future__ import annotations
@@ -47,15 +48,7 @@ class AgentState(Enum):
 
 
 class AudioCapture:
-    """Capture microphone audio with energy-based VAD.
-
-    Each utterance: speech onset detected → buffer audio → silence_duration
-    of silence → push complete utterance to async queue.
-
-    Supports `pause()`/`resume()` for half-duplex mode: the agent calls
-    `pause()` before TTS playback and `resume()` after, ensuring the
-    speaker bleed-back is never picked up.
-    """
+    """Capture microphone audio with energy-based VAD and echo-resistant barge-in."""
 
     def __init__(self, config: AudioConfig, player: "AudioPlayer | None" = None) -> None:
         self.config = config
@@ -67,46 +60,48 @@ class AudioCapture:
         self._is_speaking = False
         self._silence_chunk_count = 0
         self._voiced_chunk_count = 0
+        self._voiced_during_playback = 0  # for sustained-voice barge-in gate
         self._chunk_samples = int(config.chunk_duration * config.sample_rate)
         self._max_silence_chunks = int(
             config.silence_duration / config.chunk_duration
         )
-        # Require this many continuously-voiced chunks before we accept
-        # a real utterance. Filters out single-chunk noise spikes.
         self._min_voiced_chunks_to_start = max(
             1, int(0.3 / config.chunk_duration)  # 300ms of speech
         )
+        self._barge_in_min_chunks = max(
+            1, int(config.barge_in_min_duration / config.chunk_duration)
+        )
 
-        self._paused = False  # set True during TTS playback
+        self._paused = False
+        # Set true for one chunk-callback cycle after barge-in fires, so
+        # the callback ignores the few echo-tail samples left in the air.
+        self._barge_in_cooldown_chunks = 0
 
     # ------------------------------------------------------------------
     # Public control (called by the agent loop)
     # ------------------------------------------------------------------
 
     def pause(self) -> None:
-        """Stop accepting input (call before TTS playback in half-duplex mode)."""
+        """Stop accepting input — used by half-duplex mode only."""
         self._paused = True
-        # Drop any in-progress utterance and queued utterances —
-        # they could be Marcus's own voice bleeding into the mic.
+        self._reset_buffers()
+
+    def resume(self) -> None:
+        """Re-enable input."""
+        self._reset_buffers()
+        self._paused = False
+
+    def _reset_buffers(self) -> None:
         self._buffer.clear()
         self._is_speaking = False
         self._silence_chunk_count = 0
         self._voiced_chunk_count = 0
-        # Clear the queue too — anything enqueued during processing
-        # is suspect (likely echo of TTS that was just generated).
+        self._voiced_during_playback = 0
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-
-    def resume(self) -> None:
-        """Re-enable input after TTS playback finishes."""
-        self._buffer.clear()
-        self._is_speaking = False
-        self._silence_chunk_count = 0
-        self._voiced_chunk_count = 0
-        self._paused = False
 
     # ------------------------------------------------------------------
     # Audio thread callback
@@ -119,48 +114,70 @@ class AudioCapture:
         time: object,
         status: sd.CallbackFlags,
     ) -> None:
-        """sounddevice InputStream callback (runs in audio thread, not async)."""
+        """Runs in audio thread. Branches on playback state for echo resistance."""
         if self._paused:
-            return  # half-duplex: drop everything during playback
+            return
 
         chunk = indata[:, 0].copy().astype(np.float32)
         rms = float(np.sqrt(np.mean(chunk**2)))
-        is_voiced = rms > self.config.silence_threshold
 
+        playback_active = bool(self.player and self.player.is_playing)
+
+        # Use a stricter threshold during playback so faint echo doesn't
+        # register as voiced. Direct user speech is typically much louder
+        # than the echo bleed-through.
+        if playback_active and self.config.barge_in:
+            threshold = self.config.silence_threshold * self.config.barge_in_threshold_multiplier
+        else:
+            threshold = self.config.silence_threshold
+
+        is_voiced = rms > threshold
+
+        # ---- Barge-in detection ----
+        if playback_active and self.config.barge_in:
+            if is_voiced:
+                self._voiced_during_playback += 1
+                if self._voiced_during_playback >= self._barge_in_min_chunks:
+                    # Sustained loud speech → real interrupt
+                    self.player.interrupt()
+                    self._voiced_during_playback = 0
+                    self._barge_in_cooldown_chunks = 2  # ignore brief echo tail
+            else:
+                self._voiced_during_playback = 0
+            # Don't accumulate buffer during playback — wait for the
+            # interrupt to fire and drain the playback queue first.
+            return
+
+        # ---- Cooldown after barge-in ----
+        if self._barge_in_cooldown_chunks > 0:
+            self._barge_in_cooldown_chunks -= 1
+            return
+
+        # ---- Normal VAD path (no playback active) ----
         if is_voiced:
             self._voiced_chunk_count += 1
             if not self._is_speaking:
-                # Wait for sustained voiced activity before declaring speech
                 if self._voiced_chunk_count >= self._min_voiced_chunks_to_start:
                     self._is_speaking = True
                     self._silence_chunk_count = 0
-                    self._buffer.append(chunk)
-                else:
-                    # Still in the noise-filter window; buffer in case
-                    # this turns into real speech.
-                    self._buffer.append(chunk)
+                self._buffer.append(chunk)
             else:
                 self._silence_chunk_count = 0
                 self._buffer.append(chunk)
 
         elif self._is_speaking:
-            # Trailing silence — keep buffering until threshold
             self._buffer.append(chunk)
             self._silence_chunk_count += 1
 
             if self._silence_chunk_count >= self._max_silence_chunks:
-                # End of utterance — enqueue for transcription
                 utterance = np.concatenate(list(self._buffer))
                 if self._loop and self._loop.is_running():
                     asyncio.run_coroutine_threadsafe(
                         self._queue.put(utterance), self._loop
                     )
-                self._buffer.clear()
-                self._is_speaking = False
-                self._silence_chunk_count = 0
-                self._voiced_chunk_count = 0
+                self._reset_buffers()
         else:
-            # Idle silence — clear noise filter buffer if it had any chunks
+            # Idle silence
             self._voiced_chunk_count = 0
             self._buffer.clear()
 
@@ -187,15 +204,7 @@ class AudioCapture:
 
 
 class AudioPlayer:
-    """Play audio arrays to speaker.
-
-    In half-duplex mode (default), playback runs to completion — there
-    is no barge-in. The agent pauses the mic before calling play() and
-    resumes after.
-
-    The legacy `interrupt()` method remains available for full-duplex
-    mode but is unused in the default agent flow.
-    """
+    """Play audio arrays to speaker with chunk-level interrupt support."""
 
     def __init__(self, config: AudioConfig, sample_rate: int | None = None) -> None:
         self.config = config
@@ -210,9 +219,17 @@ class AudioPlayer:
     def is_playing(self) -> bool:
         return self._is_playing
 
+    @property
+    def was_interrupted(self) -> bool:
+        return self._interrupted
+
     def interrupt(self) -> None:
-        """Signal interrupt (only honored in full-duplex mode)."""
+        """Signal interrupt — playback stops on the next chunk boundary."""
         self._interrupted = True
+
+    def reset_interrupt(self) -> None:
+        """Clear the interrupt flag before starting a new playback session."""
+        self._interrupted = False
 
     def play(
         self,
@@ -223,13 +240,14 @@ class AudioPlayer:
         """Play audio array. Returns True if completed, False if interrupted."""
         if len(audio) == 0:
             return True
+        if self._interrupted:
+            # Already in interrupted state — drop further audio until reset
+            return False
 
         sr = sample_rate or self._sample_rate
         chunk_samples = int((self.config.playback_chunk_ms / 1000) * sr)
 
-        self._interrupted = False
         self._is_playing = True
-
         try:
             with sd.OutputStream(
                 samplerate=sr,

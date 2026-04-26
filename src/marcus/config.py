@@ -83,6 +83,18 @@ class AudioConfig(BaseSettings):
     silence_duration: float = 2.0
     playback_chunk_ms: int = 100
 
+    # --- Barge-in (interrupt Marcus while he's speaking) ---
+    # Without acoustic echo cancellation, Marcus's TTS bleeds into the mic
+    # via the speakers and can falsely trigger barge-in. To stay robust:
+    #   - Require louder-than-normal speech during playback
+    #     (barge_in_threshold_multiplier).
+    #   - Require sustained speech for barge_in_min_duration before firing.
+    # With headphones, the bleed-back path is gone, and you can lower
+    # both values aggressively for a snappier experience.
+    barge_in: bool = True
+    barge_in_threshold_multiplier: float = 3.0   # 3x normal silence_threshold
+    barge_in_min_duration: float = 0.6           # seconds of sustained voice
+
 
 class TrainingConfig(BaseSettings):
     """Fine-tuning hyperparameters for SFT and GRPO."""

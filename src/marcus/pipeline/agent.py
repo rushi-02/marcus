@@ -106,19 +106,35 @@ class MarcusAgent:
     # ------------------------------------------------------------------
 
     async def run_streaming(self) -> None:
-        """Half-duplex voice loop with sentence-level TTS streaming."""
+        """Voice loop with sentence-level TTS streaming.
+
+        With `audio.barge_in=True` (default), the mic stays open during
+        TTS playback. Sustained loud user speech triggers an interrupt
+        which stops Marcus mid-sentence and routes the new utterance back
+        through ASR → LLM → TTS.
+
+        With `audio.barge_in=False`, the mic is muted during playback
+        (half-duplex / walkie-talkie behaviour).
+        """
         self.preload()
 
-        console.print(
-            "[bold cyan]Marcus is ready.[/bold cyan] "
-            "Speak, then pause. Wait for him to finish before speaking again.\n"
-        )
+        barge_in = self.config.audio.barge_in
+        if barge_in:
+            console.print(
+                "[bold cyan]Marcus is ready.[/bold cyan] "
+                "Speak any time — interrupt him by speaking up while he talks.\n"
+                "[dim]Tip: headphones make barge-in much more reliable.[/dim]\n"
+            )
+        else:
+            console.print(
+                "[bold cyan]Marcus is ready.[/bold cyan] "
+                "Speak, then pause. Wait for him to finish before speaking again.\n"
+            )
         self._state = AgentState.LISTENING
 
         async for utterance_audio in self.capture.listen():
             self._state = AgentState.PROCESSING
 
-            # ASR
             user_text = self.asr.transcribe(
                 utterance_audio, self.config.audio.sample_rate
             )
@@ -130,14 +146,21 @@ class MarcusAgent:
             console.print(f"[green]You:[/green] {user_text}")
             self.conversation.add_user(user_text)
 
-            # Half-duplex: mute mic before TTS playback
-            self.capture.pause()
+            if not barge_in:
+                self.capture.pause()  # half-duplex
+            self.player.reset_interrupt()
             self._state = AgentState.SPEAKING
 
             full_response = ""
             sentence_buffer = ""
+            interrupted = False
 
             for token in self.llm.stream_generate(self.conversation.get_messages()):
+                # Stop generating if user has barged in
+                if self.player.was_interrupted:
+                    interrupted = True
+                    break
+
                 full_response += token
                 sentence_buffer += token
 
@@ -145,32 +168,47 @@ class MarcusAgent:
                     sentence = sentence_buffer.strip()
                     if sentence:
                         audio = self.tts.synthesize(sentence)
-                        self.player.play(
+                        completed = self.player.play(
                             audio, sample_rate=self.config.tts.sample_rate
                         )
+                        if not completed:
+                            interrupted = True
+                            break
                     sentence_buffer = ""
 
-            # Flush any final partial sentence
-            if sentence_buffer.strip():
+            # Flush any final partial sentence (only if not interrupted)
+            if not interrupted and sentence_buffer.strip():
                 audio = self.tts.synthesize(sentence_buffer.strip())
-                self.player.play(audio, sample_rate=self.config.tts.sample_rate)
+                if not self.player.play(audio, sample_rate=self.config.tts.sample_rate):
+                    interrupted = True
 
-            if full_response.strip():
-                self.conversation.add_assistant(full_response.strip())
-                console.print(f"[cyan]Marcus:[/cyan] {full_response.strip()}\n")
+            response_to_save = full_response.strip()
+            if interrupted:
+                console.print("[dim yellow](interrupted — listening...)[/dim yellow]")
+                # Keep the partial response as Marcus's last turn so the
+                # context isn't lost — but mark it as truncated so the
+                # next user message reads as a follow-up, not a new topic.
+                if response_to_save:
+                    self.conversation.add_assistant(response_to_save + " [...]")
+                console.print(f"[cyan]Marcus (cut short):[/cyan] {response_to_save}\n")
+            else:
+                if response_to_save:
+                    self.conversation.add_assistant(response_to_save)
+                    console.print(f"[cyan]Marcus:[/cyan] {response_to_save}\n")
 
-            # Resume mic for next utterance
-            self.capture.resume()
+            if not barge_in:
+                self.capture.resume()
             self._state = AgentState.LISTENING
 
     async def run(self) -> None:
         """Non-streaming voice loop (full response synthesized at once).
 
-        Slower perceived latency than run_streaming() but simpler and easier
-        to reason about. Kept for debugging.
+        Slower perceived latency than run_streaming() but simpler. Kept for
+        debugging. Honors `audio.barge_in` like run_streaming.
         """
         self.preload()
 
+        barge_in = self.config.audio.barge_in
         console.print(
             "[bold cyan]Marcus is ready.[/bold cyan] Speak, then pause.\n"
         )
@@ -191,15 +229,24 @@ class MarcusAgent:
             self.conversation.add_user(user_text)
 
             response_text = self.llm.generate(self.conversation.get_messages())
-            self.conversation.add_assistant(response_text)
-            console.print(f"[cyan]Marcus:[/cyan] {response_text}\n")
 
-            self.capture.pause()
+            if not barge_in:
+                self.capture.pause()
+            self.player.reset_interrupt()
             self._state = AgentState.SPEAKING
-            audio = self.tts.synthesize(response_text)
-            self.player.play(audio, sample_rate=self.config.tts.sample_rate)
-            self.capture.resume()
 
+            audio = self.tts.synthesize(response_text)
+            completed = self.player.play(audio, sample_rate=self.config.tts.sample_rate)
+
+            if completed:
+                self.conversation.add_assistant(response_text)
+                console.print(f"[cyan]Marcus:[/cyan] {response_text}\n")
+            else:
+                self.conversation.add_assistant(response_text + " [...]")
+                console.print(f"[dim yellow](interrupted)[/dim yellow] [cyan]Marcus:[/cyan] {response_text}\n")
+
+            if not barge_in:
+                self.capture.resume()
             self._state = AgentState.LISTENING
 
     async def text_chat(self) -> None:

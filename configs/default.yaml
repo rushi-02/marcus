@@ -31,6 +31,16 @@ audio:
   silence_duration: 2.0        # seconds of silence to end utterance
   playback_chunk_ms: 100
 
+  # Barge-in: interrupt Marcus while he's speaking. With speakers (no AEC),
+  # we use a stricter threshold + sustained-voice gate to avoid Marcus
+  # interrupting himself via mic bleed-back. With headphones, set:
+  #   barge_in_threshold_multiplier: 1.5
+  #   barge_in_min_duration: 0.2
+  # for a much snappier interrupt.
+  barge_in: true
+  barge_in_threshold_multiplier: 3.0
+  barge_in_min_duration: 0.6
+
 training:
   # NOTE: with ~93 train examples, val loss bottoms at iter ~20 (after 1 epoch)
   # then climbs sharply (overfit). Keep epochs=1 + save_every=5 to checkpoint
