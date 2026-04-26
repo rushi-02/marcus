@@ -143,6 +143,7 @@ def clean_all_sources(data_dir: Path) -> list[dict]:
         "discourses": "discourses.txt",
         "enchiridion": "enchiridion.txt",
         "seneca_morals": "seneca_morals.txt",
+        "seneca_letters": "seneca_letters.txt",  # Inwood translation, from PDF
     }
 
     for source_name, filename in source_files.items():
