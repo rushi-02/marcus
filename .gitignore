@@ -13,11 +13,12 @@ wheels/
 .env
 
 # Data: keep synthetic and training (small, important);
-# ignore raw, processed, and books (large, regeneratable or binary)
+# ignore raw, processed, books, and TTS outputs
 data/raw/
 data/processed/
 data/reference_voice/
 data/books/
+data/tts_test/
 
 # Model adapters (large binary files)
 adapters/*

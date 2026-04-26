@@ -1,4 +1,4 @@
-"""Tests for the TTS wrapper — unit tests that mock mlx-audio / f5-tts-mlx."""
+"""Tests for the TTS wrapper — Kokoro via mlx-audio."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from marcus.models.tts import MarcusTTS, _split_sentences
 
 
 @pytest.fixture
-def tts_config(tmp_path):
-    voice_ref = tmp_path / "voice.wav"
-    voice_ref.write_bytes(b"RIFF" + b"\x00" * 36)  # minimal WAV stub
+def tts_config():
     return TTSConfig(
-        model_id="lucasnewman/f5-tts-mlx",
-        voice_ref_path=str(voice_ref),
+        model_id="prince-canuma/Kokoro-82M",
+        voice="bm_george",
+        lang_code="b",
+        speed=0.95,
     )
 
 
@@ -46,35 +46,32 @@ class TestSplitSentences:
 class TestMarcusTTSUnit:
     def test_synthesize_returns_ndarray(self, tts_config):
         fake_audio = np.zeros(24000, dtype=np.float32)
-        mock_generate = MagicMock(return_value=(fake_audio, 24000))
 
-        with patch("marcus.models.tts.MarcusTTS._load"):
-            tts = MarcusTTS(tts_config)
-            tts._loaded = True
-            tts._backend = "f5_tts_mlx"
-            tts._voice_ref = str(tts_config.voice_ref_path)
+        # Mock the loaded Kokoro model: model.generate() yields GenerationResult-like objects
+        mock_result = MagicMock(audio=fake_audio)
+        mock_model = MagicMock()
+        mock_model.generate.return_value = iter([mock_result])
 
-        with patch("marcus.models.tts.MarcusTTS._synthesize_f5", return_value=fake_audio):
-            result = tts.synthesize("Remember, virtue is its own reward.")
+        tts = MarcusTTS(tts_config)
+        tts._model = mock_model
+        tts._loaded = True
 
+        result = tts.synthesize("Remember, virtue is its own reward.")
         assert isinstance(result, np.ndarray)
+        assert len(result) == 24000
 
     def test_empty_text_returns_empty(self, tts_config):
-        with patch("marcus.models.tts.MarcusTTS._load"):
-            tts = MarcusTTS(tts_config)
-            tts._loaded = True
-            tts._backend = "f5_tts_mlx"
-
+        tts = MarcusTTS(tts_config)
+        tts._loaded = True
+        # Don't even need a model since empty text should short-circuit
         result = tts.synthesize("")
         assert len(result) == 0
 
     def test_synthesize_stream_yields_chunks(self, tts_config):
         fake_audio = np.ones(24000, dtype=np.float32)
 
-        with patch("marcus.models.tts.MarcusTTS._load"):
-            tts = MarcusTTS(tts_config)
-            tts._loaded = True
-            tts._backend = "f5_tts_mlx"
+        tts = MarcusTTS(tts_config)
+        tts._loaded = True
 
         with patch.object(tts, "synthesize", return_value=fake_audio):
             chunks = list(tts.synthesize_stream("First sentence. Second sentence!"))

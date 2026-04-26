@@ -59,28 +59,41 @@ def train_sft_local(
         )
 
     t = config.training
+
+    # Count training examples to derive total iterations from epochs
+    train_count = sum(1 for _ in open(train_file, encoding="utf-8") if _.strip())
+    iters_per_epoch = max(1, train_count // t.batch_size)
+    total_iters = iters_per_epoch * t.sft_epochs
+
     cmd = [
-        sys.executable, "-m", "mlx_lm.lora",
+        "mlx_lm.lora",
         "--model", config.llm.model_id,
         "--data", str(data_dir),
         "--train",
+        "--fine-tune-type", "lora",
+        "--num-layers", str(t.lora_layers),
         "--batch-size", str(t.batch_size),
-        "--lora-rank", str(t.lora_rank),
-        "--lora-alpha", str(t.lora_alpha),
-        "--lora-layers", str(t.lora_layers),
-        "--epochs", str(t.sft_epochs),
+        "--iters", str(total_iters),
         "--learning-rate", str(t.sft_lr),
         "--max-seq-length", str(t.max_seq_length),
         "--adapter-path", str(adapter_path),
-        "--val-batches", "25",
+        "--val-batches", "5",
+        "--steps-per-report", "10",
+        "--steps-per-eval", "20",
+        "--save-every", "50",
+        "--mask-prompt",
+        "--seed", "42",
     ]
 
     console.print(f"[cyan]Starting local SFT training...[/cyan]")
     console.print(f"  Model: {config.llm.model_id}")
-    console.print(f"  Data:  {data_dir}")
+    console.print(f"  Data:  {data_dir} ({train_count} train examples)")
     console.print(f"  Adapter will be saved to: {adapter_path}")
-    console.print(f"  Epochs: {t.sft_epochs}, LR: {t.sft_lr}, Rank: {t.lora_rank}")
-    console.print("\n[dim]This may take 20-60 min on M2 Pro...[/dim]\n")
+    console.print(
+        f"  Iterations: {total_iters} ({t.sft_epochs} epochs × {iters_per_epoch}/epoch), "
+        f"LR: {t.sft_lr}, LoRA layers: {t.lora_layers}"
+    )
+    console.print("\n[dim]This may take 15-30 min on M2 Pro...[/dim]\n")
 
     result = subprocess.run(cmd, check=True)
 

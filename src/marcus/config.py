@@ -39,11 +39,23 @@ class LLMConfig(BaseSettings):
 
 
 class TTSConfig(BaseSettings):
-    """Text-to-Speech with voice cloning (mlx-audio)."""
+    """Text-to-Speech via mlx-audio (Kokoro by default).
 
-    model_id: str = "lucasnewman/f5-tts-mlx"
-    voice_ref_path: str = "data/reference_voice/marcus_voice.wav"
+    Kokoro voices follow the format `<accent><gender>_<name>`:
+    - bm_george, bm_lewis, bm_fable    (British male, deep voices)
+    - am_michael, am_adam, am_eric    (American male)
+    - bf_emma, bf_isabella            (British female)
+    - af_bella, af_sarah, af_nicole   (American female)
+
+    `bm_george` is the default — deep British baritone, well-suited to Marcus.
+    """
+
+    model_id: str = "prince-canuma/Kokoro-82M"
+    voice: str = "bm_george"
+    lang_code: str = "b"  # 'a'=American, 'b'=British, 'e'=es, 'f'=fr, 'h'=hi, etc.
+    speed: float = 0.95   # slightly slower for deliberate Stoic delivery
     sample_rate: int = 24000
+    voice_ref_path: str | None = None  # not used by Kokoro; kept for future cloning backends
     streaming: bool = True
 
 

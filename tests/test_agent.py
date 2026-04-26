@@ -20,23 +20,20 @@ class TestMarcusAgentTextMode:
             patch("marcus.models.asr.MarcusASR._load"),
             patch("marcus.models.llm.MarcusLLM._load"),
             patch("marcus.models.tts.MarcusTTS._load"),
-            patch("marcus.models.llm.generate", return_value="My friend, consider..."),
         ):
             from marcus.pipeline.agent import MarcusAgent
             config = load_config()
             agent = MarcusAgent(config)
-            agent.llm._loaded = True
-            agent.llm._model = MagicMock()
-            agent.llm._tokenizer = MagicMock()
-            agent.llm._tokenizer.apply_chat_template.return_value = "prompt"
+            # Directly mock the bound generate method on the LLM instance
+            agent.llm.generate = MagicMock(return_value="My friend, consider...")
 
-            # Simulate one text exchange
             agent.conversation.add_user("I feel anxious about exams.")
             response = agent.llm.generate(agent.conversation.get_messages())
             agent.conversation.add_assistant(response)
 
         assert agent.conversation.turn_count == 1
         assert agent.conversation.last_user_message == "I feel anxious about exams."
+        assert agent.conversation.last_assistant_message == "My friend, consider..."
 
     def test_feedback_recording(self, tmp_path):
         """Verify feedback is persisted after record_feedback() call."""

@@ -15,9 +15,12 @@ llm:
   system_prompt_path: "configs/system_prompt.txt"
 
 tts:
-  model_id: "lucasnewman/f5-tts-mlx"
-  voice_ref_path: "data/reference_voice/marcus_voice.wav"
+  model_id: "prince-canuma/Kokoro-82M"
+  voice: "bm_george"     # British male, deep baritone (try also: am_michael, bm_lewis, bm_fable)
+  lang_code: "b"          # b=British, a=American
+  speed: 0.95             # slightly slower for deliberate Stoic delivery
   sample_rate: 24000
+  voice_ref_path: null    # not used by Kokoro
   streaming: true
 
 audio:
