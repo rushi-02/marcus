@@ -68,6 +68,11 @@ class MarcusLLM:
             add_generation_prompt=True,
         )
 
+    def _make_sampler(self):
+        """Build the sampler callable from config (mlx-lm 0.22+ API)."""
+        from mlx_lm.sample_utils import make_sampler
+        return make_sampler(temp=self.config.temperature, top_p=self.config.top_p)
+
     def generate(self, messages: list[dict]) -> str:
         """Generate a complete response (blocking).
 
@@ -86,8 +91,7 @@ class MarcusLLM:
             self._tokenizer,
             prompt=prompt,
             max_tokens=self.config.max_tokens,
-            temp=self.config.temperature,
-            top_p=self.config.top_p,
+            sampler=self._make_sampler(),
             verbose=False,
         )
         # mlx-lm generate returns the generated text (not the full sequence)
@@ -113,8 +117,7 @@ class MarcusLLM:
             self._tokenizer,
             prompt=prompt,
             max_tokens=self.config.max_tokens,
-            temp=self.config.temperature,
-            top_p=self.config.top_p,
+            sampler=self._make_sampler(),
         ):
             # stream_generate yields objects with .text (the new token)
             token = response.text if hasattr(response, "text") else str(response)

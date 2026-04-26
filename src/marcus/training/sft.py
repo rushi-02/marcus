@@ -78,9 +78,9 @@ def train_sft_local(
         "--max-seq-length", str(t.max_seq_length),
         "--adapter-path", str(adapter_path),
         "--val-batches", "5",
-        "--steps-per-report", "10",
-        "--steps-per-eval", "20",
-        "--save-every", "50",
+        "--steps-per-report", "5",
+        "--steps-per-eval", "5",
+        "--save-every", "5",
         "--mask-prompt",
         "--seed", "42",
     ]

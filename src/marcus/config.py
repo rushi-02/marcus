@@ -76,10 +76,12 @@ class TrainingConfig(BaseSettings):
     """Fine-tuning hyperparameters for SFT and GRPO."""
 
     # SFT (LoRA)
-    sft_epochs: int = 3
+    # NOTE: with ~93 train examples, 1 epoch ≈ 23 iters. Past iter 25, val
+    # loss climbs sharply (severe overfit). Keep epochs low.
+    sft_epochs: int = 1
     sft_lr: float = 1e-4
-    lora_rank: int = 16
-    lora_alpha: int = 32
+    lora_rank: int = 8
+    lora_alpha: int = 16
     lora_layers: int = 16
     batch_size: int = 4
     max_seq_length: int = 2048
