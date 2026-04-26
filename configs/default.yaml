@@ -2,7 +2,7 @@
 # Override any value here; missing keys use Pydantic defaults.
 
 asr:
-  model_id: "mlx-community/whisper-small"
+  model_id: "mlx-community/whisper-large-v3-turbo"
   language: "en"
   stream: true
 

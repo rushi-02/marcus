@@ -32,22 +32,23 @@ class MarcusASR:
         if self._loaded:
             return
         try:
-            from mlx_audio.stt.utils import load as load_stt
-            console.print(f"[cyan]Loading ASR model:[/cyan] {self.config.model_id}")
-            self._model = load_stt(self.config.model_id)
-            self._loaded = True
-            console.print("[green]ASR model loaded.[/green]")
+            from mlx_audio.stt.utils import load_model
         except ImportError:
             raise ImportError(
                 "mlx-audio not installed. Run: uv pip install mlx-audio"
             )
+
+        console.print(f"[cyan]Loading ASR model:[/cyan] {self.config.model_id}")
+        self._model = load_model(self.config.model_id)
+        self._loaded = True
+        console.print("[green]ASR model loaded.[/green]")
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         """Transcribe a complete audio segment to text.
 
         Args:
             audio: Float32 numpy array, shape (N,), values in [-1, 1].
-            sample_rate: Sample rate of the audio (default 16kHz).
+            sample_rate: Sample rate of the audio (must be 16kHz; resample upstream).
 
         Returns:
             Transcribed text string (stripped, may be empty if silence).
@@ -62,29 +63,33 @@ class MarcusASR:
             audio = audio[:, 0]
         audio = audio.astype(np.float32)
 
-        # mlx-audio Whisper accepts numpy arrays or file paths
+        # Resample if needed
+        if sample_rate != 16000:
+            from mlx_audio.stt.utils import resample_audio
+            audio = resample_audio(audio, sample_rate, 16000).astype(np.float32)
+
+        # whisper.generate returns STTOutput with .text and .segments
         result = self._model.generate(
             audio,
             language=self.config.language,
+            verbose=False,
         )
 
-        # Result may be a string or object with .text attribute
         if isinstance(result, str):
-            text = result
-        elif hasattr(result, "text"):
-            text = result.text
-        else:
-            text = str(result)
-
-        return text.strip()
+            return result.strip()
+        if hasattr(result, "text"):
+            return result.text.strip()
+        return str(result).strip()
 
     def transcribe_file(self, audio_path: str) -> str:
         """Transcribe an audio file. Useful for testing without a microphone."""
         self._load()
-        result = self._model.generate(audio_path, language=self.config.language)
+        result = self._model.generate(
+            audio_path, language=self.config.language, verbose=False,
+        )
         if isinstance(result, str):
             return result.strip()
-        return result.text.strip()
+        return result.text.strip() if hasattr(result, "text") else str(result).strip()
 
     def unload(self) -> None:
         """Free model memory (useful when running all 3 models concurrently)."""

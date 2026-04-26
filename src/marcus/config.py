@@ -20,9 +20,14 @@ from pydantic_settings import BaseSettings
 # ---------------------------------------------------------------------------
 
 class ASRConfig(BaseSettings):
-    """Automatic Speech Recognition (Whisper via mlx-audio)."""
+    """Automatic Speech Recognition (Whisper via mlx-audio).
 
-    model_id: str = "mlx-community/whisper-small"
+    Default uses whisper-large-v3-turbo (~798M params, 2.5 GB peak memory,
+    ~9x real-time on M2 Pro). For tighter memory budgets, fall back to
+    `mlx-community/whisper-tiny` (~75 MB) or `mlx-community/whisper-base`.
+    """
+
+    model_id: str = "mlx-community/whisper-large-v3-turbo"
     language: str = "en"
     stream: bool = True
 
