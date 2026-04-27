@@ -1,0 +1,38 @@
+#!/bin/bash
+# Marcus CLI wrapper — invokes `uv run marcus` with a self-heal step that
+# clears the macOS UF_HIDDEN flag on .venv files before each run.
+#
+# Why: Python 3.11+ silently skips .pth files marked UF_HIDDEN. macOS
+# background services (Time Machine, Spotlight) periodically apply the
+# UF_HIDDEN flag to .venv directories as a "skip in backups" signal. When
+# this happens, our editable install of `marcus` becomes unimportable
+# until the flag is cleared.
+#
+# Usage:
+#   ./marcus chat
+#   ./marcus text
+#   ./marcus train sft
+#   ./marcus data download
+#
+# To use without `./` prefix, add the project to your PATH:
+#   export PATH="$PWD:$PATH"
+# or alias it in your shell rc:
+#   alias marcus="$PWD/marcus"
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
+
+# Self-heal UF_HIDDEN — silent unless --debug is passed
+if [[ "${1:-}" == "--debug-wrapper" ]]; then
+    shift
+    echo "[wrapper] Clearing UF_HIDDEN flags on .venv..." >&2
+fi
+
+if [[ -d .venv ]]; then
+    chflags -R nohidden .venv 2>/dev/null || true
+fi
+
+# Pass through to uv-managed marcus CLI
+exec uv run marcus "$@"
