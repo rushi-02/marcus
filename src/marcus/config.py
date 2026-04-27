@@ -92,8 +92,18 @@ class AudioConfig(BaseSettings):
     # With headphones, the bleed-back path is gone, and you can lower
     # both values aggressively for a snappier experience.
     barge_in: bool = True
-    barge_in_threshold_multiplier: float = 3.0   # 3x normal silence_threshold
-    barge_in_min_duration: float = 0.6           # seconds of sustained voice
+    # 1.8x is a good default for speakers — catches normal conversational
+    # speech while still gating out moderate echo. With headphones you can
+    # drop to 1.2x or below. If Marcus interrupts himself, raise to 2.5+.
+    # Run `marcus calibrate` to measure your environment.
+    barge_in_threshold_multiplier: float = 1.8
+    # 300ms is enough for the first syllable of a word + brief sustain.
+    # Lower (0.15-0.2) for snappier feel; raise (0.5+) if false-positives.
+    barge_in_min_duration: float = 0.3
+    # If True, print RMS values during chat so you can see what's
+    # registering as voice vs. silence vs. echo. Use during tuning, then
+    # turn off again — it's noisy.
+    debug_audio: bool = False
 
 
 class TrainingConfig(BaseSettings):

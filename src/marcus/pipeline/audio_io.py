@@ -133,6 +133,13 @@ class AudioCapture:
 
         is_voiced = rms > threshold
 
+        if self.config.debug_audio:
+            tag = "PLAY" if playback_active else "    "
+            voiced = "VOICED" if is_voiced else "      "
+            console.print(
+                f"[dim]{tag} rms={rms:.4f} thr={threshold:.4f} {voiced}[/dim]"
+            )
+
         # ---- Barge-in detection ----
         if playback_active and self.config.barge_in:
             if is_voiced:

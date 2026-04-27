@@ -98,6 +98,18 @@ def text(
         console.print("\n[dim]Session ended. Farewell.[/dim]")
 
 
+@app.command(name="calibrate")
+def calibrate_audio() -> None:
+    """Calibrate audio thresholds for your environment.
+
+    Measures ambient noise, your voice, and TTS bleed-back via speakers.
+    Recommends silence_threshold and barge-in parameters tuned for your
+    setup. Update configs/default.yaml with the suggested values.
+    """
+    from marcus.ui.calibrate import run_calibration
+    run_calibration()
+
+
 @app.command(name="record-ref")
 def record_ref(
     output_path: str = typer.Option("data/reference_voice/marcus_voice.wav", "--output", "-o"),
