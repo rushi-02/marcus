@@ -3,9 +3,10 @@
 #
 # Run this:
 #   - After cloning the repo for the first time
+#   - After deleting .venv to start fresh
 #   - If `uv run marcus` ever fails with "No module named 'marcus'"
 #     (caused by macOS UF_HIDDEN flag making site.py skip .pth files;
-#     a known issue with some uv venv states on macOS).
+#     see scripts/sitecustomize.py for details).
 #
 # Usage:
 #   bash scripts/setup_env.sh
@@ -32,31 +33,32 @@ fi
 echo "==> Syncing dependencies..."
 uv sync
 
-# 3. macOS-specific: clear UF_HIDDEN flag from .venv if set.
-#    See pyproject.toml [tool.uv] notes — some venv states acquire a
-#    UF_HIDDEN flag that makes Python's site.py silently skip .pth files,
-#    which breaks the editable install of `marcus`.
+# 3. Install sitecustomize.py to make `import marcus` robust against
+#    macOS UF_HIDDEN flag on .pth files. This is the permanent fix
+#    that survives `uv sync` and Time Machine background activity.
+SITECUSTOMIZE_SRC="$PROJECT_DIR/scripts/sitecustomize.py"
+SITECUSTOMIZE_DST=$(uv run python -c \
+    "import site; print(site.getsitepackages()[0])")"/sitecustomize.py"
+echo "==> Installing sitecustomize.py → $SITECUSTOMIZE_DST"
+cp "$SITECUSTOMIZE_SRC" "$SITECUSTOMIZE_DST"
+
+# 4. Clear any UF_HIDDEN flags currently set on .venv (defensive belt-and-
+#    suspenders, even though sitecustomize.py makes it unnecessary).
 if [[ "$(uname -s)" == "Darwin" ]] && [[ -d .venv ]]; then
-    if find .venv -maxdepth 5 -flags +hidden 2>/dev/null | grep -q .; then
-        echo "==> Clearing UF_HIDDEN flags from .venv (macOS workaround)..."
-        chflags -R nohidden .venv
-    fi
+    chflags -R nohidden .venv 2>/dev/null || true
 fi
 
-# 4. Verify the import works
+# 5. Verify the import works
 echo "==> Verifying marcus import..."
 if uv run python -c "import marcus" 2>/dev/null; then
     echo "    ✓ marcus imports correctly"
 else
-    echo "    ✗ marcus import still failing — recreating .venv from scratch..."
-    rm -rf .venv
-    uv sync
-    chflags -R nohidden .venv 2>/dev/null || true
-    uv run python -c "import marcus" && echo "    ✓ Fixed after clean recreate"
+    echo "    ✗ marcus import still failing — see scripts/sitecustomize.py"
+    exit 1
 fi
 
 echo
 echo "==> Done. Try it:"
-echo "    uv run marcus --help"
 echo "    uv run marcus chat       # voice chat"
 echo "    uv run marcus text       # text-only chat"
+echo "    ./marcus chat            # wrapper (also clears UF_HIDDEN)"
