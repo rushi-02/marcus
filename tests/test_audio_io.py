@@ -91,6 +91,25 @@ class TestBargeInDetection:
 
         assert player.interrupt_count == 0
 
+    def test_dynamic_threshold_overrides_static_multiplier(self, cfg):
+        """When agent calibrates, the dynamic threshold takes effect."""
+        player = FakePlayer(is_playing=True)
+        capture = AudioCapture(cfg, player=player)
+
+        # Static threshold would be: 0.01 * 3.0 = 0.03
+        # Dynamic threshold from calibration: 0.05 (high bleed → high gate)
+        capture.set_barge_in_threshold(0.05)
+
+        # rms=0.04 is above static (0.03) but below dynamic (0.05) → no fire
+        for _ in range(5):
+            capture._audio_callback(voiced_chunk(cfg, rms=0.04), 0, None, None)
+        assert player.interrupt_count == 0
+
+        # rms=0.08 clears the dynamic threshold for sustained period → fire
+        for _ in range(5):
+            capture._audio_callback(voiced_chunk(cfg, rms=0.08), 0, None, None)
+        assert player.interrupt_count >= 1
+
     def test_no_barge_in_when_disabled(self, cfg):
         """barge_in=False must never fire interrupt regardless of audio."""
         cfg = cfg.model_copy(update={"barge_in": False})

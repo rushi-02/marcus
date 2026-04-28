@@ -77,6 +77,19 @@ class AudioCapture:
         # the callback ignores the few echo-tail samples left in the air.
         self._barge_in_cooldown_chunks = 0
 
+        # Dynamic threshold (set by agent.preload() after measuring TTS
+        # bleed). Overrides the static multiplier-based threshold when set.
+        # Stays None for headphones / no-measurement runs.
+        self._dynamic_barge_in_threshold: float | None = None
+
+    def set_barge_in_threshold(self, absolute_threshold: float) -> None:
+        """Override the multiplier-based threshold with an absolute value.
+
+        Used by agent.preload() to set the threshold based on measured
+        TTS bleed level for this user's specific hardware setup.
+        """
+        self._dynamic_barge_in_threshold = absolute_threshold
+
     # ------------------------------------------------------------------
     # Public control (called by the agent loop)
     # ------------------------------------------------------------------
@@ -125,9 +138,17 @@ class AudioCapture:
 
         # Use a stricter threshold during playback so faint echo doesn't
         # register as voiced. Direct user speech is typically much louder
-        # than the echo bleed-through.
+        # than the echo bleed-through. If the agent measured the actual
+        # bleed level on startup, we use that calibrated value; otherwise
+        # we fall back to the static multiplier from config.
         if playback_active and self.config.barge_in:
-            threshold = self.config.silence_threshold * self.config.barge_in_threshold_multiplier
+            if self._dynamic_barge_in_threshold is not None:
+                threshold = self._dynamic_barge_in_threshold
+            else:
+                threshold = (
+                    self.config.silence_threshold
+                    * self.config.barge_in_threshold_multiplier
+                )
         else:
             threshold = self.config.silence_threshold
 

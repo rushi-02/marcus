@@ -70,14 +70,18 @@ class MarcusAgent:
     # ------------------------------------------------------------------
 
     def preload(self) -> None:
-        """Load all 3 models upfront so the first user utterance isn't slow.
+        """Load all 3 models upfront and auto-calibrate barge-in threshold.
 
-        Without this, the first ASR/LLM/TTS call each pays the full model-load
-        cost (5-15s each), while the user is sitting in front of a microphone
-        wondering why nothing is happening.
+        Without preloading, the first ASR/LLM/TTS call each pays the full
+        model-load cost (5-15s each) while the user is sitting in front of
+        a microphone wondering why nothing is happening.
 
-        Also warms the TTS by synthesizing a tiny sample (Kokoro's first-call
-        latency is ~3s, but after that it's <300ms per sentence).
+        After loading, we play a short TTS sample while recording from
+        the mic. The peak captured RMS during that window is the user's
+        TTS bleed-back level for THIS specific hardware setup (mic gain,
+        speaker volume, room acoustics). We set the barge-in threshold
+        to 1.5x that value, so brief echo can't trigger interrupts but
+        normal speech (which is much louder than echo) still does.
         """
         import time
         console.print("[cyan]Loading models...[/cyan]")
@@ -92,14 +96,97 @@ class MarcusAgent:
 
         t2 = time.time()
         self.tts._load()
-        # Warm the TTS pipeline by synthesizing one short token
         try:
-            self.tts.synthesize("Ready.")
+            self.tts.synthesize("Ready.")  # Warm up Kokoro's first-call path
         except Exception:
             pass
         console.print(f"  [dim]TTS ready ({time.time() - t2:.1f}s)[/dim]")
 
+        # Auto-calibrate barge-in threshold from actual TTS bleed.
+        if self.config.audio.barge_in:
+            self._calibrate_barge_in_threshold()
+
         console.print(f"[green]All models loaded in {time.time() - t0:.1f}s.[/green]\n")
+
+    def _calibrate_barge_in_threshold(self) -> None:
+        """Measure TTS bleed level and set barge-in threshold accordingly.
+
+        Plays a 3-second TTS sample while recording from the mic. The 95th
+        percentile RMS during playback is the user's bleed level. The
+        barge-in threshold is then set to max(1.5x bleed, static_threshold)
+        so that echo can't trigger but real speech can.
+        """
+        import time
+
+        import numpy as np
+        import sounddevice as sd
+
+        console.print("  [dim]Calibrating barge-in (stay quiet for 3s)...[/dim]", end="")
+
+        # Synthesize a calibration sample. The text doesn't matter; we just
+        # need ~3s of speech-shaped audio playing through the speakers.
+        sample_text = (
+            "Calibrating audio. Please remain quiet for a brief moment "
+            "while I measure your environment."
+        )
+        try:
+            audio_out = self.tts.synthesize(sample_text)
+        except Exception:
+            console.print(" [yellow]skipped (TTS unavailable)[/yellow]")
+            return
+
+        if len(audio_out) == 0:
+            console.print(" [yellow]skipped (empty TTS output)[/yellow]")
+            return
+
+        rms_during: list[float] = []
+        chunk_samples = int(0.1 * self.config.audio.sample_rate)
+
+        def callback(indata, frames, t, status):
+            chunk = indata[:, 0]
+            rms = float(np.sqrt(np.mean(chunk**2)))
+            rms_during.append(rms)
+
+        try:
+            with sd.InputStream(
+                samplerate=self.config.audio.sample_rate,
+                channels=1,
+                blocksize=chunk_samples,
+                dtype="float32",
+                device=self.config.audio.device_input,
+                callback=callback,
+            ):
+                sd.play(
+                    audio_out,
+                    samplerate=self.config.tts.sample_rate,
+                    device=self.config.audio.device_output,
+                )
+                sd.wait()
+                time.sleep(0.2)  # tail capture
+        except Exception as e:
+            console.print(f" [yellow]skipped ({e})[/yellow]")
+            return
+
+        if not rms_during:
+            console.print(" [yellow]skipped (no audio captured)[/yellow]")
+            return
+
+        bleed_p95 = float(np.percentile(rms_during, 95))
+        # Threshold = 1.5x measured bleed, but never below the static
+        # multiplier-based threshold (so headphones users with ~0 bleed
+        # don't get an absurdly low threshold).
+        static_thr = (
+            self.config.audio.silence_threshold
+            * self.config.audio.barge_in_threshold_multiplier
+        )
+        dynamic_thr = max(bleed_p95 * 1.5, static_thr)
+
+        self.capture.set_barge_in_threshold(dynamic_thr)
+        # Clean line then summary
+        console.print(
+            f"\r  [dim]Bleed level p95={bleed_p95:.4f} → "
+            f"barge-in threshold set to {dynamic_thr:.4f}[/dim]"
+        )
 
     # ------------------------------------------------------------------
     # Main loops
