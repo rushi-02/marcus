@@ -1,0 +1,39 @@
+\newcommand{\BibTeX}{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+%% People
+\newcounter{address}
+\setcounter{address}{1}
+\renewcommand{\theaddress}{\textsuperscript{\fnsymbol{address}}}
+\newcommand{\address}[1]{\refstepcounter{address}\theaddress#1\\}
+\newcommand{\Name}[3]{\texorpdfstring{\href{mailto:#3}{#2}#1}{#2}\xspace}
+
+%% Calculus
+\newcommand{\pd}[2]{\ensuremath{\frac{\partial #1}{\partial #2}}\xspace}
+\newcommand{\fd}[2]{\ensuremath{\frac{d #1}{d #2}}\xspace}
+
+%% Math Sets
+\newcommand{\Q}[1]{\ensuremath{\mathbb{#1}}\xspace}
+\newcommand{\R}{\Q{R}}
+
+%% Matrix, Vector
+\newcommand{\V}[1]{\ensuremath{\boldsymbol{#1}}\xspace}
+\newcommand{\M}[1]{\ensuremath{\boldsymbol{#1}}\xspace}
+\newcommand{\I}{\M{I}}
+
+%% Math Functions
+\newcommand{\F}[1]{\ensuremath{\mathrm{#1}}\xspace}
+\newcommand{\sgn}{\F{sgn}}
+\newcommand{\tr}{\F{trace}}
+\newcommand{\diag}{\F{diag}}
+
+%% Math Names
+\newcommand{\N}[1]{\ensuremath{\mathit{#1}}\xspace}
+
+%% Data
+\newcommand{\mc}[1]{\ensuremath{\mathcal{#1}}\xspace}
+\newcommand{\D}{\mc{D}}
+
+%% Project-specific
+\newcommand{\rms}{\F{RMS}\xspace}
+\newcommand{\loss}{\mc{L}\xspace}
+\newcommand{\reward}{\mc{R}\xspace}
