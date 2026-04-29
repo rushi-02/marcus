@@ -1232,6 +1232,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "sounddevice" },
+    { name = "soundfile" },
     { name = "typer" },
 ]
 
@@ -1276,6 +1277,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "sounddevice", specifier = ">=0.5" },
+    { name = "soundfile", specifier = ">=0.13.1" },
     { name = "typer", specifier = ">=0.12" },
 ]
 provides-extras = ["ui", "train", "dev"]
